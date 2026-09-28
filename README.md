@@ -4,6 +4,16 @@ A Cloudflare Worker that reads the fields of a fillable PDF form and fills them.
 
 The Worker has two endpoints. `POST /fields` returns the fields of a PDF form as JSON. `POST /fill` writes your values into the fields and returns the filled PDF. You send the form as a file upload or as a URL to the form. The Worker keeps no state and stores nothing.
 
+## Hosted instance
+
+A public instance runs at `https://fillpdf.agkit.io`:
+
+```bash
+curl -X POST https://fillpdf.agkit.io/fields -F url=https://www.irs.gov/pub/irs-pdf/fw9.pdf
+```
+
+The instance has no authentication and no rate limit. For private or high-volume use, deploy your own copy.
+
 ## Quick start
 
 ```bash
@@ -188,6 +198,8 @@ pnpm deploy
 ```
 
 Wrangler prints the URL of your Worker, for example `https://agkit-fillpdf.<your-subdomain>.workers.dev`. To change the Worker name, edit `name` in `wrangler.jsonc`.
+
+The `production` environment in `wrangler.jsonc` deploys the hosted instance to `fillpdf.agkit.io`. It works only with access to the `agkit.io` Cloudflare account.
 
 ## Limits
 

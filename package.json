@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "check": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy:production": "wrangler deploy --env production"
   },
   "author": "Kaustubh Bhalerao",
   "license": "MIT",

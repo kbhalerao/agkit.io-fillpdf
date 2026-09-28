@@ -3,5 +3,14 @@
 	"name": "agkit-fillpdf",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-09-28",
-	"observability": { "enabled": true }
+	"observability": { "enabled": true },
+	"env": {
+		// The instance at fillpdf.agkit.io. Deploy with `pnpm deploy:production`.
+		"production": {
+			"name": "agkit-fillpdf",
+			"account_id": "c65af8faf0b0021f5ca1ba5da2beff78",
+			"routes": [{ "pattern": "fillpdf.agkit.io", "custom_domain": true }],
+			"workers_dev": false
+		}
+	}
 }
