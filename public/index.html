@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgKit Fill PDF</title>
+<meta name="description" content="List the fields of a fillable PDF form and fill them, from the browser or over HTTP.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon-32x32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root {
+	--navy: #172953;
+	--red: #ba2025;
+	--bg: #ffffff;
+	--fg: #172953;
+	--muted: #55627e;
+	--border: #dde2ec;
+	--code-bg: #0f1b38;
+	--code-fg: #e6ebf5;
+	--accent: var(--red);
+	--accent-fg: #ffffff;
+	color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #0c1530;
+		--fg: #eef2fa;
+		--muted: #a4b0cc;
+		--border: #26345c;
+		--code-bg: #070e22;
+		--accent: #d9454a;
+		color-scheme: dark;
+	}
+}
+:root[data-theme="dark"] {
+	--bg: #0c1530; --fg: #eef2fa; --muted: #a4b0cc; --border: #26345c;
+	--code-bg: #070e22; --accent: #d9454a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+	margin: 0; background: var(--bg); color: var(--fg);
+	font: 16px/1.55 Inter, system-ui, sans-serif;
+}
+h1, h2, h3 { font-family: Montserrat, Inter, sans-serif; line-height: 1.2; }
+a { color: var(--accent); }
+code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.875em; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
+header { border-bottom: 1px solid var(--border); }
+header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.brand img { height: 30px; }
+.brand span { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 18px; padding-left: 12px; border-left: 2px solid var(--accent); }
+.logo-dark { display: none; }
+:root[data-theme="dark"] .logo-light { display: none; } :root[data-theme="dark"] .logo-dark { display: block; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .logo-light { display: none; } :root:not([data-theme="light"]) .logo-dark { display: block; } }
+nav a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: 15px; }
+nav a:hover { color: var(--fg); }
+
+.hero { padding: 56px 0 32px; }
+.hero h1 { font-size: clamp(28px, 5vw, 40px); margin: 0 0 12px; }
+.hero p { color: var(--muted); font-size: 18px; max-width: 640px; margin: 0; }
+
+section { padding: 24px 0 40px; }
+section > h2 { font-size: 22px; margin: 0 0 16px; display: flex; align-items: center; gap: 4px; }
+
+pre { background: var(--code-bg); color: var(--code-fg); padding: 16px; border-radius: 8px; overflow-x: auto; margin: 8px 0 0; line-height: 1.5; font-size: 13.5px; }
+section p { color: var(--muted); max-width: 720px; }
+table { border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+th, td { text-align: left; padding: 8px 16px 8px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; }
+.method { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--accent); color: var(--accent-fg); padding: 2px 6px; border-radius: 4px; margin-right: 6px; vertical-align: 2px; }
+ul.limits { margin: 0; padding-left: 20px; color: var(--muted); }
+ul.limits li { margin-bottom: 6px; }
+
+footer { border-top: 1px solid var(--border); padding: 24px 0; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+footer a { color: var(--muted); }
+
+</style>
+</head>
+<body>
+<header>
+	<div class="wrap">
+		<a class="brand" href="https://agkit.io">
+			<img class="logo-light" src="/logo.svg" alt="AgKit">
+			<img class="logo-dark" src="/logo-white.svg" alt="AgKit">
+			<span>Fill PDF</span>
+		</a>
+		<nav>
+			<a href="#fields">/fields</a>
+			<a href="#fill">/fill</a>
+			<a href="https://github.com/kbhalerao/agkit.io-fillpdf">GitHub</a>
+		</nav>
+	</div>
+</header>
+
+<main class="wrap">
+	<div class="hero">
+		<h1>Fill PDF forms from the command line</h1>
+		<p>Send a fillable PDF, or a link to one. <code>/fields</code> returns its fields as JSON, with a readable label for each. <code>/fill</code> takes your values and returns the filled PDF. Nothing is stored.</p>
+	</div>
+
+	<section id="fields">
+		<h2><span class="method">POST</span>/fields</h2>
+		<p>List the fields of a form. Send the PDF as <code>file</code>, or its link as <code>url</code>.</p>
+<pre>curl -s -X POST https://fillpdf.agkit.io/fields \
+  -F url=https://www.irs.gov/pub/irs-pdf/fss4.pdf</pre>
+<pre>{
+  "xfa": true,
+  "fields": [
+    {
+      "name": "topmostSubform[0].Page1[0].f1_2[0]",
+      "label": "1 Legal name of entity (or individual) for whom the EIN is being requested",
+      "description": "Type or print clearly. 1. Legal name of entity (or individual) ...",
+      "page": 1,
+      "type": "text",
+      "required": false,
+      "readOnly": false,
+      "value": null,
+      "maxLength": null,
+      "multiline": false
+    },
+    {
+      "name": "topmostSubform[0].Page1[0].c1_1[0]",
+      "label": "Yes",
+      "description": "8a. Is this application for a limited liability company (L L C) (or a foreign equivalent)? Yes.",
+      "page": 1,
+      "type": "checkbox",
+      "required": false,
+      "readOnly": false,
+      "value": false
+    }
+  ]
+}</pre>
+		<p><code>label</code> is the text printed with the field. <code>description</code> is the longer screen-reader text, when the form has it. Use <code>name</code> as the key in <code>/fill</code>.</p>
+	</section>
+
+	<section id="fill">
+		<h2><span class="method">POST</span>/fill</h2>
+		<p>Write values into the form and get the filled PDF back. Pass <code>data</code> as a JSON object of <code>name</code> to value.</p>
+<pre>curl -s -X POST https://fillpdf.agkit.io/fill -o filled.pdf \
+  -F file=@fss4.pdf \
+  -F 'data={"topmostSubform[0].Page1[0].f1_2[0]": "Jane Doe",
+          "topmostSubform[0].Page1[0].c1_1[1]": true}'</pre>
+		<p>Or send JSON with a link:</p>
+<pre>curl -s -X POST https://fillpdf.agkit.io/fill -o filled.pdf \
+  -H 'content-type: application/json' \
+  -d '{"url": "https://www.irs.gov/pub/irs-pdf/fss4.pdf",
+       "data": {"topmostSubform[0].Page1[0].f1_2[0]": "Jane Doe"}}'</pre>
+		<table>
+			<tr><th>Type</th><th>Value</th></tr>
+			<tr><td><code>text</code></td><td>A string, number or boolean</td></tr>
+			<tr><td><code>checkbox</code></td><td><code>true</code> or <code>false</code></td></tr>
+			<tr><td><code>radio</code></td><td>One string from <code>options</code></td></tr>
+			<tr><td><code>dropdown</code>, <code>optionlist</code></td><td>A string from <code>options</code>, or an array when <code>multiselect</code> is true</td></tr>
+		</table>
+		<p><code>null</code> clears a field of any type.</p>
+		<p>The Worker checks every value before it writes any. If one fails, it writes nothing and returns <code>400</code> with a <code>details</code> object that names each bad field:</p>
+<pre>{"error": "Some fields cannot be filled",
+ "details": {"topmostSubform[0].Page1[0].c1_1[0]": "Checkbox takes true or false"}}</pre>
+	</section>
+
+	<section id="jq">
+		<h2>Work with the output</h2>
+		<p>Build a <code>data</code> template from the field list with <code>jq</code>, edit it, then fill:</p>
+<pre>curl -s -X POST https://fillpdf.agkit.io/fields -F file=@fss4.pdf \
+  | jq '.fields | map({(.name): .value}) | add' &gt; data.json
+
+curl -s -X POST https://fillpdf.agkit.io/fill -o filled.pdf \
+  -F file=@fss4.pdf -F 'data=&lt;data.json'</pre>
+		<p>See the labels next to the names:</p>
+<pre>curl -s -X POST https://fillpdf.agkit.io/fields -F file=@fss4.pdf \
+  | jq -r '.fields[] | [.type, .name, .label] | @tsv'</pre>
+	</section>
+
+	<section id="limits">
+		<h2>Limits</h2>
+		<ul class="limits">
+			<li>AcroForm fields only. A form that is only XFA returns <code>"xfa": true</code> with no fields.</li>
+			<li>Text must be WinAnsi: Latin-1 plus curly quotes, dashes and €.</li>
+			<li>PDFs up to 20 MB. Encrypted PDFs are not supported.</li>
+			<li>The output is not flattened. Its fields stay editable.</li>
+			<li>No authentication or rate limit. For private or heavy use, deploy your own copy from the <a href="https://github.com/kbhalerao/agkit.io-fillpdf">source</a>.</li>
+		</ul>
+	</section>
+</main>
+
+<footer>
+	<div class="wrap">
+		<span>An <a href="https://agkit.io">AgKit.io</a> tool by Soil Diagnostics, Inc.</span>
+		<span>MIT licensed · <a href="https://github.com/kbhalerao/agkit.io-fillpdf">Source</a></span>
+	</div>
+</footer>
+
+</body>
+</html>
