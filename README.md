@@ -62,6 +62,9 @@ Response `200`, `application/json`:
   "fields": [
     {
       "name": "topmostSubform[0].Page1[0].f1_01[0]",
+      "label": "1 Name of entity/individual. An entry is required. (For a sole proprietor ...)",
+      "description": "Page 1. Print or type. See Specific Instructions on page 3. 1. Name of entity/individual. ...",
+      "page": 1,
       "type": "text",
       "required": false,
       "readOnly": false,
@@ -71,6 +74,9 @@ Response `200`, `application/json`:
     },
     {
       "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[0]",
+      "label": "Individual/sole proprietor",
+      "description": "3a. Check the appropriate box for federal tax classification of the entity/individual ...",
+      "page": 1,
       "type": "checkbox",
       "required": false,
       "readOnly": false,
@@ -85,6 +91,9 @@ Every field has these keys:
 | Key | Type | Meaning |
 |-----|------|---------|
 | `name` | string | The fully qualified field name. Use it as the key in `/fill`. |
+| `label` | string or `null` | The text printed with the field on the page, for a person to read. |
+| `description` | string or `null` | Longer screen-reader text, when the form has it and it differs from `label`. A Yes or No checkbox has `label` "Yes" and a `description` that states the question. |
+| `page` | number or `null` | The 1-based page that shows the field. |
 | `type` | string | `text`, `checkbox`, `radio`, `dropdown`, `optionlist`, `signature` or `button` |
 | `required` | boolean | The form marks the field as required. |
 | `readOnly` | boolean | The form marks the field as read-only. |
@@ -98,6 +107,8 @@ Some types add more keys:
 | `radio` | `value` (string or `null`), `options` (string array) |
 | `dropdown` | `value` (string array), `options`, `multiselect` (boolean), `editable` (boolean) |
 | `optionlist` | `value` (string array), `options`, `multiselect` (boolean) |
+
+`label` comes from the field's tooltip (`/TU`). A hybrid form, such as most IRS forms, has no tooltip. For that form the Worker reads `label` and `description` from the XFA template, matched by field name. A form with neither source returns `null` for both.
 
 `xfa` is `true` when the PDF also contains an XFA form. See [Limits](#limits).
 
@@ -129,10 +140,19 @@ Each field type accepts one kind of value:
 
 | Type | Value |
 |------|-------|
-| `text` | A string, number or boolean. The Worker writes numbers and booleans as text. `null` clears the field. |
+| `text` | A string, number or boolean. The Worker writes numbers and booleans as text. |
 | `checkbox` | `true` or `false` |
 | `radio` | One string from `options` |
 | `dropdown`, `optionlist` | One string from `options`, or an array of strings when `multiselect` is `true`. An `editable` dropdown also accepts a string that is not in `options`. |
+
+`null` clears a field of any of these types. The `value` keys from `/fields` are valid `data` values, so the field list can serve as a fill template:
+
+```bash
+curl -s -X POST localhost:8787/fields -F file=@fw9.pdf \
+  | jq '.fields | map({(.name): .value}) | add' > data.json
+# edit data.json, then:
+curl -s -X POST localhost:8787/fill -F file=@fw9.pdf -F 'data=<data.json' -o filled.pdf
+```
 
 `signature` and `button` fields cannot be filled.
 

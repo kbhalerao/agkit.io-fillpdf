@@ -9,6 +9,7 @@ import {
 	PDFSignature,
 	PDFTextField,
 } from '@cantoo/pdf-lib';
+import { pageNumbers, tooltip, xfaLabels } from './labels';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
@@ -33,7 +34,23 @@ export default {
 			const form = await loadForm(input.pdf);
 
 			if (pathname === '/fields') {
-				return Response.json({ xfa: form.hasXFA(), fields: form.getFields().map(describe) });
+				const labels = xfaLabels(form);
+				const pages = pageNumbers(form);
+				const fields = form.getFields().map((field) => {
+					const xfa = labels.get(field.getName()) ?? {};
+					// label: the short text printed by the field. description: the longer
+					// screen-reader text, which often carries the question a Yes/No box answers.
+					const label = tooltip(field) ?? xfa.caption ?? xfa.toolTip ?? xfa.speak ?? null;
+					const description = xfa.speak ?? xfa.toolTip ?? null;
+					return {
+						name: field.getName(),
+						label,
+						description: description === label ? null : description,
+						page: pages.get(field.acroField.getWidgets()[0]?.dict) ?? null,
+						...describe(field),
+					};
+				});
+				return Response.json({ xfa: form.hasXFA(), fields });
 			}
 
 			if (!input.data) throw new HttpError(400, 'Missing "data": an object of field name to value');
@@ -123,7 +140,8 @@ async function download(url: string): Promise<ArrayBuffer> {
 async function loadForm(pdf: ArrayBuffer): Promise<PDFForm> {
 	let doc: PDFDocument;
 	try {
-		doc = await PDFDocument.load(pdf);
+		// Keep XFA so /fields can report it and read its labels; /fill removes it.
+		doc = await PDFDocument.load(pdf, { preserveXFA: true });
 	} catch (e) {
 		throw new HttpError(400, `Cannot read the PDF: ${e instanceof Error ? e.message : e}`);
 	}
@@ -143,7 +161,7 @@ function typeOf(field: PDFField): FieldType {
 }
 
 function describe(field: PDFField) {
-	const base = { name: field.getName(), type: typeOf(field), required: field.isRequired(), readOnly: field.isReadOnly() };
+	const base = { type: typeOf(field), required: field.isRequired(), readOnly: field.isReadOnly() };
 	if (field instanceof PDFTextField) {
 		return { ...base, value: field.getText() ?? null, maxLength: field.getMaxLength() ?? null, multiline: field.isMultiline() };
 	}
@@ -206,15 +224,18 @@ function writer(field: PDFField, value: unknown): () => void {
 		return () => field.setText(text);
 	}
 	if (field instanceof PDFCheckBox) {
+		if (value === null) return () => field.uncheck();
 		if (typeof value !== 'boolean') throw new Error('Checkbox takes true or false');
 		return () => (value ? field.check() : field.uncheck());
 	}
 	if (field instanceof PDFRadioGroup) {
+		if (value === null) return () => field.clear();
 		if (typeof value !== 'string') throw new Error('Radio group takes one option string');
 		if (!field.getOptions().includes(value)) throw new Error(`Not an option: ${field.getOptions().join(', ')}`);
 		return () => field.select(value);
 	}
 	if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+		if (value === null) return () => field.clear();
 		const values = Array.isArray(value) ? value : [value];
 		if (!values.every((v) => typeof v === 'string')) throw new Error('Choice field takes a string or an array of strings');
 		if (values.length > 1 && !field.isMultiselect()) throw new Error('Field takes one option');

@@ -1,4 +1,4 @@
-import { PDFDocument } from '@cantoo/pdf-lib';
+import { PDFDocument, PDFName, PDFString } from '@cantoo/pdf-lib';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 
@@ -29,6 +29,27 @@ function multipart(path: string, fields: Record<string, string | Blob>) {
 	return new Request(`https://w.test${path}`, { method: 'POST', body });
 }
 
+// A hybrid form: three AcroForm fields plus an XFA template that labels them.
+async function xfaPdf() {
+	const blank = await PDFDocument.create();
+	const page = blank.addPage();
+	for (const [i, name] of ['root[0].sub[0].line[0]', 'root[0].sub[0].line[1]', 'root[0].sub[0].zip[0]'].entries()) {
+		blank.getForm().createTextField(name).addToPage(page, { x: 50, y: 700 - i * 60 });
+	}
+	// A created document drops XFA on save; a loaded one keeps it with preserveXFA.
+	const doc = await PDFDocument.load(await blank.save(), { preserveXFA: true });
+	const form = doc.getForm();
+	const xml = `<template><subform name="root"><subform name="sub">
+		<field name="line"><caption><value><exData><body><p>1<span>  </span>Name &amp; title</p></body></exData></value></caption></field>
+		<field name="line"><assist><toolTip>Second line</toolTip><speak>spoken</speak></assist></field>
+		<subform><field name="zip"><assist><speak>ZIP code</speak></assist></field></subform>
+	</subform></subform></template>`;
+	const stream = doc.context.register(doc.context.stream(xml));
+	form.acroForm.dict.set(PDFName.of('XFA'), doc.context.obj([PDFString.of('template'), stream]));
+
+	return new File([await doc.save()], 'x.pdf');
+}
+
 const pdfFile = () => new File([template], 'form.pdf', { type: 'application/pdf' });
 
 describe('/fields', () => {
@@ -44,6 +65,26 @@ describe('/fields', () => {
 		]);
 		expect(body.fields[0].maxLength).toBe(10);
 		expect(body.fields[2].options).toEqual(['red', 'blue']);
+	});
+
+	it('labels a field from its /TU tooltip and gives its page', async () => {
+		const doc = await PDFDocument.load(template);
+		doc.getForm().getTextField('name').acroField.dict.set(PDFName.of('TU'), PDFString.of('Full  legal name'));
+		const res = await worker.fetch(multipart('/fields', { file: new File([await doc.save()], 'f.pdf') }));
+		const { fields } = (await res.json()) as { fields: Array<Record<string, unknown>> };
+		expect(fields[0]).toMatchObject({ name: 'name', label: 'Full legal name', page: 1 });
+		expect(fields[1].label).toBeNull();
+	});
+
+	it('labels hybrid-form fields from the XFA template by SOM path', async () => {
+		const res = await worker.fetch(multipart('/fields', { file: await xfaPdf() }));
+		const body = (await res.json()) as { xfa: boolean; fields: Array<{ name: string; label: string; description: string | null }> };
+		expect(body.xfa).toBe(true);
+		expect(Object.fromEntries(body.fields.map((f) => [f.name, [f.label, f.description]]))).toEqual({
+			'root[0].sub[0].line[0]': ['1 Name & title', null],
+			'root[0].sub[0].line[1]': ['Second line', 'spoken'],
+			'root[0].sub[0].zip[0]': ['ZIP code', null],
+		});
 	});
 
 	it('downloads the PDF from a url in a JSON body', async () => {
@@ -76,6 +117,23 @@ describe('/fields', () => {
 		expect(res.status).toBe(400);
 	});
 
+	it('returns 502 when the url does not return the PDF', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('gone', { status: 404 })));
+		const res = await worker.fetch(multipart('/fields', { url: 'https://example.com/missing.pdf' }));
+		expect(res.status).toBe(502);
+	});
+
+	it('returns 413 when the url declares more than 20 MB', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('x', { headers: { 'content-length': String(21 * 1024 * 1024) } })));
+		const res = await worker.fetch(multipart('/fields', { url: 'https://example.com/big.pdf' }));
+		expect(res.status).toBe(413);
+	});
+
+	it('returns 415 for a raw PDF body', async () => {
+		const res = await worker.fetch(new Request('https://w.test/fields', { method: 'POST', headers: { 'content-type': 'application/pdf' }, body: template }));
+		expect(res.status).toBe(415);
+	});
+
 	it('rejects a non-http url', async () => {
 		const res = await worker.fetch(multipart('/fields', { url: 'file:///etc/passwd' }));
 		expect(res.status).toBe(400);
@@ -96,6 +154,15 @@ describe('/fill', () => {
 		expect(form.getDropdown('state').getSelected()).toEqual(['IL']);
 	});
 
+	it('accepts the jq template built from /fields, nulls included', async () => {
+		const listed = await worker.fetch(multipart('/fields', { file: pdfFile() }));
+		const { fields } = (await listed.json()) as { fields: Array<{ name: string; value: unknown }> };
+		const data = Object.fromEntries(fields.map((f) => [f.name, f.value]));
+		expect(data.color).toBeNull();
+		const res = await worker.fetch(multipart('/fill', { file: pdfFile(), data: JSON.stringify(data) }));
+		expect(res.status).toBe(200);
+	});
+
 	it('reports every bad entry and writes nothing', async () => {
 		const data = { nope: 'x', agree: 'yes', color: 'green', name: 'far too long a name' };
 		const res = await worker.fetch(multipart('/fill', { file: pdfFile(), data: JSON.stringify(data) }));
@@ -107,6 +174,21 @@ describe('/fill', () => {
 	it('rejects text that Helvetica cannot encode', async () => {
 		const res = await worker.fetch(multipart('/fill', { file: pdfFile(), data: JSON.stringify({ name: 'कौस्तुभ' }) }));
 		expect(res.status).toBe(400);
+	});
+
+	it('removes the XFA part so viewers show the filled fields', async () => {
+		const res = await worker.fetch(multipart('/fill', { file: await xfaPdf(), data: JSON.stringify({ 'root[0].sub[0].zip[0]': '61820' }) }));
+		expect(res.status).toBe(200);
+		const form = (await PDFDocument.load(await res.arrayBuffer(), { preserveXFA: true })).getForm();
+		expect(form.hasXFA()).toBe(false);
+		expect(form.getTextField('root[0].sub[0].zip[0]').getText()).toBe('61820');
+	});
+
+	it('rejects a dropdown value outside its options, and two values for a single-select', async () => {
+		const res = await worker.fetch(multipart('/fill', { file: pdfFile(), data: JSON.stringify({ state: 'OH' }) }));
+		expect(((await res.json()) as { details: Record<string, string> }).details.state).toMatch(/Not an option/);
+		const two = await worker.fetch(multipart('/fill', { file: pdfFile(), data: JSON.stringify({ state: ['IL', 'IN'] }) }));
+		expect(((await two.json()) as { details: Record<string, string> }).details.state).toBe('Field takes one option');
 	});
 
 	it('rejects a missing data payload', async () => {
